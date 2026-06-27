@@ -36,10 +36,23 @@
             </div>
         </div>
 
+        <div id="topbarMenu" class="interactive" style="display: none;">
+            <div class="topbar-left">
+                <button class="topbar-btn exit" onclick="exitToLobby()" title="Exit to Lobby">🚪 Exit</button>
+                <button id="toggleChatBtn" class="topbar-btn active" onclick="togglePanel('chatContainer')">💬 Chat</button>
+                <button id="toggleConsoleBtn" class="topbar-btn admin-only" onclick="togglePanel('adminConsole')" style="display: none;">💻 Console</button>
+                <button id="toggleBuilderBtn" class="topbar-btn admin-only" onclick="togglePanel('builderPanel')" style="display: none;">🛠️ Build Tools</button>
+            </div>
+            <div class="topbar-right">
+                <span id="zoomPercent" style="font-family: monospace; font-size: 11px; margin-right: 5px; color: #aaa;">Zoom: 100%</span>
+                <span id="lobbyStatusBadge">SINGLEPLAYER</span>
+            </div>
+        </div>
+
         <div id="chatContainer" class="interactive panel-blur" style="display: none;">
             <div id="chatMessages"></div>
             <div class="chat-input-row">
-                <input type="text" id="chatInput" placeholder="Type message or command..." onkeydown="if(event.key === 'Enter') sendChatMessage()">
+                <input type="text" id="chatInput" placeholder="Type message..." onkeydown="if(event.key === 'Enter') sendChatMessage()">
                 <button onclick="sendChatMessage()">Send</button>
             </div>
         </div>
@@ -55,22 +68,30 @@
             </div>
             
             <div class="console-help panel-blur">
-                <h4>📜 GAME COMMANDS</h4>
-                <ul>
-                    <li><span class="cmd-syntax">!admin [gmail]</span> <br><small>Add new builder</small></li>
-                    <li><span class="cmd-syntax">!setspawn [1-5]</span> <br><small>Save player spawn layout</small></li>
-                    <li><span class="cmd-syntax">!announce [text]</span> <br><small>Global alert message</small></li>
-                </ul>
-                <div class="console-status" id="activeModeStatus">LOBBY MODE</div>
+                <h4>📜 ADMIN MATRIX</h4>
+                <div class="help-scroll">
+                    <ul>
+                        <li><span class="cmd-syntax">!admin [email]</span></li>
+                        <li><span class="cmd-syntax">!setspawn [1-5]</span></li>
+                        <li><span class="cmd-syntax">!announce [text]</span></li>
+                        <li><span class="cmd-syntax">!speed [value]</span></li>
+                        <li><span class="cmd-syntax">!size [value]</span></li>
+                        <li><span class="cmd-syntax">!tp [x] [y]</span></li>
+                        <li><span class="cmd-syntax">!color [hex]</span></li>
+                        <li><span class="cmd-syntax">!clearblocks</span></li>
+                    </ul>
+                </div>
             </div>
         </div>
 
         <div id="builderPanel" class="interactive panel-blur" style="display: none;">
             <h3>🛠️ Builder Tools</h3>
             <div class="build-options">
-                <button class="btn-tool" onclick="setBuildItem('wall')">🧱 Wall Block</button>
-                <button class="btn-tool" onclick="setBuildItem('floor')">🟦 Floor Tile</button>
-                <button class="btn-tool clear" onclick="setBuildItem('erase')">❌ Eraser</button>
+                <button id="tool-wall" class="btn-tool" onclick="setBuildItem('wall')">🧱 Wall</button>
+                <button id="tool-floor" class="btn-tool" onclick="setBuildItem('floor')">🟦 Floor</button>
+                <button id="tool-neon" class="btn-tool" onclick="setBuildItem('neon')">✨ Neon</button>
+                <button id="tool-gold" class="btn-tool" onclick="setBuildItem('gold')">👑 Gold</button>
+                <button id="tool-erase" class="btn-tool clear" onclick="setBuildItem('erase')">❌ Erase</button>
             </div>
         </div>
 
