@@ -4,210 +4,65 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Chromashift</title>
-    <!-- Google Sign-In Library -->
+    <link rel="stylesheet" href="style.css">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
-    <style>
-        /* --- Core Setup --- */
-        * { box-sizing: border-box; user-select: none; }
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', Roboto, sans-serif; background: #050510; color: white; }
-        
-        #gameCanvas { width: 100%; height: 100%; position: absolute; top: 0; left: 0; background: #111; z-index: 1; }
-        .ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10; pointer-events: none; }
-        .interactive { pointer-events: auto; }
-
-        /* --- AMONG US STYLE MAIN MENU --- */
-        #mainMenu { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: radial-gradient(circle, #1a153a 0%, #070512 100%); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 15; }
-        .game-title { font-size: 56px; font-weight: 900; letter-spacing: 6px; text-transform: uppercase; margin-bottom: 5px; text-shadow: 0 0 20px rgba(0, 240, 255, 0.6); color: #00f0ff; }
-        .user-badge { margin-bottom: 30px; font-size: 16px; color: #aaa; background: rgba(255,255,255,0.05); padding: 6px 16px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.1); }
-        
-        .menu-buttons { display: flex; flex-direction: column; gap: 15px; width: 220px; }
-        .btn { background: #333; border: none; color: white; font-size: 18px; font-weight: bold; padding: 12px; border-radius: 8px; cursor: pointer; transition: 0.2s; text-align: center; }
-        .btn-play { background: #00e676; color: #000; box-shadow: 0 4px 15px rgba(0,230,118,0.3); }
-        .btn-play:hover { background: #00ff87; }
-        .btn-shop { background: #ffaa00; color: #000; }
-        .btn-shop:hover { background: #ffbb33; }
-
-        /* --- GOOGLE LOGIN CONTAINER --- */
-        #loginContainer { margin-top: 20px; }
-
-        /* --- HUD CONTROLS (In-Game) --- */
-        #topControls { position: absolute; top: 10px; right: 10px; display: none; gap: 10px; }
-        .btn-exit { background: rgba(255, 51, 51, 0.3); border: 1px solid #ff3333; color: white; padding: 8px 16px; border-radius: 6px; font-weight: bold; cursor: pointer; }
-
-        /* --- ROBLOX CHAT (In-Game) --- */
-        #chatContainer { position: absolute; top: 10px; left: 10px; width: 280px; height: 160px; background: rgba(0, 0, 0, 0.5); border-radius: 6px; display: flex; flex-direction: column; padding: 8px; display: none; border: 1px solid rgba(255,255,255,0.1); }
-        #chatMessages { flex-grow: 1; overflow-y: auto; font-size: 13px; }
-        #chatInput { width: 100%; background: rgba(0,0,0,0.5); border: 1px solid #333; border-radius: 4px; color: white; padding: 6px; font-size: 12px; margin-top: 5px; outline: none; }
-
-        /* --- SHOP MODAL SYSTEM --- */
-        #shopModal { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(5, 5, 15, 0.95); display: flex; flex-direction: column; justify-content: center; align-items: center; display: none; z-index: 20; }
-        .shop-header { display: flex; justify-content: space-between; width: 80%; max-width: 500px; margin-bottom: 20px; align-items: center; }
-        .shop-title { font-size: 32px; font-weight: bold; color: #ffaa00; }
-        .coin-count { font-size: 18px; font-weight: bold; background: rgba(255,170,0,0.1); padding: 6px 14px; border-radius: 20px; border: 1px solid #ffaa00; }
-        .shop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 80%; max-width: 500px; }
-        .shop-item { background: #151226; border: 2px solid #252044; border-radius: 10px; padding: 15px; text-align: center; display: flex; flex-direction: column; gap: 10px; }
-        .shop-item.owned { border-color: #00e676; }
-        .item-name { font-weight: bold; font-size: 16px; }
-        .btn-buy { background: #ffaa00; border: none; color: black; font-weight: bold; padding: 6px; border-radius: 4px; cursor: pointer; }
-        .btn-buy.owned { background: #00e676; cursor: default; }
-        .btn-close-shop { background: #555; width: 80%; max-width: 500px; margin-top: 20px; }
-    </style>
 </head>
 <body>
 
-    <div id="gameCanvas"></div>
+    <div id="landscapeWarning">
+        <div class="warning-box">
+            <div class="rotate-icon">🔄</div>
+            <div>Please rotate your device to Landscape mode to play!</div>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
 
     <div class="ui-layer">
         
-        <!-- MAIN MENU -->
-        <div id="mainMenu" class="interactive">
-            <div class="game-title">Chromashift</div>
-            <div class="user-badge" id="userBadge">Playing as: Guest Player</div>
+        <div id="mainMenu" class="interactive panel-blur">
+            <h1 class="game-title">Chromashift</h1>
+            <div class="user-badge" id="userBadge">Guest Player</div>
+            <div class="admin-badge" id="adminBadge" style="display: none;">🛠️ BUILDER / ADMIN MODE ACTIVE</div>
             
             <div class="menu-buttons">
                 <button class="btn btn-play" onclick="startGame()">ENTER MATCH</button>
                 <button class="btn btn-shop" onclick="openShop()">THE SHOP</button>
             </div>
 
-            <!-- Google Login Button Placement -->
-            <div id="loginContainer">
+            <div id="googleLoginWrapper">
                 <div id="g_id_onload"
-                     data-client_id="YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
-                     data-callback="handleCredentialResponse">
+                     data-client_id="YOUR_NEW_CLIENT_ID_HERE.apps.googleusercontent.com"
+                     data-context="signin"
+                     data-ux_mode="popup"
+                     data-callback="handleGoogleSignIn"
+                     data-auto_prompt="false">
                 </div>
-                <div class="g_id_signin" data-type="standard"></div>
+                <div class="g_id_signin" data-type="standard" data-shape="pill" data-theme="filled_blue" data-text="signin_with" data-size="large"></div>
             </div>
         </div>
 
-        <!-- THE SHOP MODAL -->
-        <div id="shopModal" class="interactive">
-            <div class="shop-header">
-                <div class="shop-title">Space Shop</div>
-                <div class="coin-count" id="coinDisplay">Coins: 0</div>
-            </div>
-            
-            <div class="shop-grid">
-                <div class="shop-item" id="item-neonSkin">
-                    <div class="item-name">Neon Cyber Skin</div>
-                    <button class="btn-buy" id="btn-neonSkin" onclick="buyItem('neonSkin', 50)">50 Coins</button>
-                </div>
-                <div class="shop-item" id="item-glitchTrail">
-                    <div class="item-name">Glitch Trail FX</div>
-                    <button class="btn-buy" id="btn-glitchTrail" onclick="buyItem('glitchTrail', 100)">100 Coins</button>
-                </div>
-            </div>
-
-            <button class="btn btn-close-shop" onclick="closeShop()">BACK TO MENU</button>
-        </div>
-
-        <!-- IN-GAME INTERFACE -->
-        <div id="chatContainer" class="interactive">
+        <div id="chatContainer" class="interactive panel-blur" style="display: none;">
             <div id="chatMessages"></div>
-            <input type="text" id="chatInput" placeholder="Press enter to chat..." onkeypress="handleChat(event)">
+            <div class="chat-input-row">
+                <input type="text" id="chatInput" placeholder="Press Enter or type chat/commands here..." onkeydown="if(event.key === 'Enter') sendChatMessage()">
+                <button onclick="sendChatMessage()">Send</button>
+            </div>
         </div>
 
-        <div id="topControls" class="interactive">
-            <button class="btn-exit" onclick="exitGame()">LEAVE</button>
+        <div id="builderPanel" class="interactive panel-blur" style="display: none;">
+            <h3>🛠️ Builder Tools</h3>
+            <p>Tap a block type, then click the game screen to place it!</p>
+            <div class="build-options">
+                <button class="btn-tool" onclick="setBuildItem('wall')">🧱 Wall Block</button>
+                <button class="btn-tool" onclick="setBuildItem('floor')">🟦 Floor Tile</button>
+                <button class="btn-tool" onclick="setBuildItem('spawn')">🏁 Spawn Point</button>
+                <button class="btn-tool clear" onclick="setBuildItem('erase')">❌ Eraser</button>
+            </div>
         </div>
 
     </div>
 
-    <script>
-        // --- GAME DATA SAVE SYSTEM (localStorage) ---
-        let playerData = JSON.parse(localStorage.getItem('chromashift_save')) || {
-            username: "Guest Player",
-            coins: 150, // Starting player stash
-            inventory: []
-        };
-
-        function saveGame() {
-            localStorage.setItem('chromashift_save', JSON.stringify(playerData));
-            updateUI();
-        }
-
-        function updateUI() {
-            document.getElementById('userBadge').innerText = `Playing as: ${playerData.username}`;
-            document.getElementById('coinDisplay').innerText = `Coins: ${playerData.coins}`;
-            
-            // Check owned shop items
-            playerData.inventory.forEach(itemId => {
-                let btn = document.getElementById(`btn-${itemId}`);
-                let box = document.getElementById(`item-${itemId}`);
-                if (btn && box) {
-                    btn.innerText = "OWNED";
-                    btn.classList.add('owned');
-                    box.classList.add('owned');
-                }
-            });
-        }
-
-        // --- SHOP ENGINE ---
-        function openShop() { document.getElementById('shopModal').style.display = 'flex'; }
-        function closeShop() { document.getElementById('shopModal').style.display = 'none'; }
-
-        function buyItem(itemId, cost) {
-            if (playerData.inventory.includes(itemId)) return; // Already owned
-            
-            if (playerData.coins >= cost) {
-                playerData.coins -= cost;
-                playerData.inventory.push(itemId);
-                saveGame();
-                alert("Item unlocked successfully!");
-            } else {
-                alert("Not enough coins! Play more matches.");
-            }
-        }
-
-        // --- GOOGLE SIGN-IN INTERACTION ---
-        function handleCredentialResponse(response) {
-            // Decodes basic profile info from the secure token Google returns
-            const responsePayload = parseJwt(response.credential);
-            playerData.username = responsePayload.given_name || responsePayload.name;
-            saveGame();
-        }
-
-        function parseJwt(token) {
-            var base64Url = token.split('.')[1];
-            var base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-            return JSON.parse(window.atob(base64));
-        }
-
-        // --- MATCH NAVIGATION CONTROLS ---
-        function startGame() {
-            document.getElementById('mainMenu').style.display = 'none';
-            document.getElementById('chatContainer').style.display = 'flex';
-            document.getElementById('topControls').style.display = 'flex';
-            addChatMessage("System", `${playerData.username} joined the match.`, true);
-        }
-
-        function exitGame() {
-            document.getElementById('mainMenu').style.display = 'flex';
-            document.getElementById('chatContainer').style.display = 'none';
-            document.getElementById('topControls').style.display = 'none';
-            document.getElementById('chatMessages').innerHTML = '';
-        }
-
-        // --- CHAT SYSTEM ---
-        function handleChat(event) {
-            if (event.key === 'Enter' && chatInput.value.trim() !== "") {
-                addChatMessage(playerData.username, chatInput.value, false);
-                chatInput.value = "";
-                chatInput.blur();
-            }
-        }
-
-        function addChatMessage(sender, text, isSystem) {
-            let container = document.getElementById('chatMessages');
-            let div = document.createElement('div');
-            div.style.marginBottom = "5px";
-            div.innerHTML = isSystem ? `<span style="color:#00f0ff;">[${text}]</span>` : `<strong>${sender}</strong>: ${text}`;
-            container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
-        }
-
-        // Load saved variables on startup
-        updateUI();
-    </script>
+    <script src="main.js"></script>
 </body>
-          </html>
-  
+</html>
