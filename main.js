@@ -491,7 +491,8 @@ function executeConsoleCommand() {
         const spawnId = parseInt(args[1]) || 1;
         if (spawnId >= 1 && spawnId <= 5) {
             worldSpawnPoints[spawnId] = { x: character.x, y: character.y };
-            localStorage.setItem('chromashift_spawns', JSON.stringify(worldSpawnPoints));        else if (cmd === "!setspawn") {
+            localStorage.setItem('chromashift_spawns', JSON.stringify(worldSpawnPoints));        
+        else if (cmd === "!setspawn") {
             const spawnId = parseInt(args[1]) || 1;
             if (spawnId >= 1 && spawnId <= 5) {
                 worldSpawnPoints[spawnId] = { x: character.x, y: character.y };
