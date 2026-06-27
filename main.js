@@ -1,15 +1,16 @@
 let playerData = { username: "Guest Player" };
-let gameActive = false, mapBlocks = [];
-const MAP_SIZE = 32, GRID_SIZE = 64; // Grid tile counts
+let gameActive = false;
+const GRID_SIZE = 64; 
 
-// Pure 3D Raycasting Position State Vectors
+// 3D Engine State
 let player = {
-    x: 3.5 * GRID_SIZE, y: 3.5 * GRID_SIZE,
+    x: 3.5 * GRID_SIZE, 
+    y: 3.5 * GRID_SIZE,
     angle: Math.PI / 4,
-    fov: Math.PI / 3, // True 60-degree Field of View perspective distortion
-    speed: 3.5, rotateSpeed: 0.04,
-    bodyPaint: ["#ffffff", "#ffffff", "#ffffff", "#ffffff"],
-    selectedColor: "#ff00cc",
+    fov: Math.PI / 3, // 60 Degree FOV
+    speed: 3.0, 
+    rotateSpeed: 0.05,
+    selectedColor: "#00ffcc",
     activePaintTool: null,
     currentPose: "stand"
 };
@@ -20,7 +21,7 @@ let keysPressed = {};
 window.addEventListener("keydown", (e) => { keysPressed[e.key.toLowerCase()] = true; });
 window.addEventListener("keyup", (e) => { keysPressed[e.key.toLowerCase()] = false; });
 
-// Build actual physical structures to blend against (No floating random bots!)
+// Pure Map Layout Matrix (0 = Empty Space, Numbers = Wall Textures)
 const MAP = [
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
     [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
@@ -34,8 +35,12 @@ const MAP = [
 const MAP_W = MAP[0].length, MAP_H = MAP.length;
 
 const canvas = document.getElementById("gameCanvas"), ctx = canvas.getContext("2d");
-function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
-window.addEventListener("resize", resizeCanvas); resizeCanvas();
+function resizeCanvas() { 
+    canvas.width = window.innerWidth; 
+    canvas.height = window.innerHeight; 
+}
+window.addEventListener("resize", resizeCanvas); 
+resizeCanvas();
 
 function selectGameMode() {
     let inputName = document.getElementById('usernameFallback').value.trim();
@@ -43,41 +48,47 @@ function selectGameMode() {
     
     gameActive = true;
     document.getElementById('mainMenu').style.display = "none";
-    ['topbarMenu', 'chatContainer', 'actionControls'].forEach(id => document.getElementById(id).style.display = "flex");
-    addChatMessage("SYSTEM", "3D First-Person Perspective Rendered. Use WASD/Arrows!");
+    ['topbarMenu', 'chatContainer', 'actionControls'].forEach(id => {
+        let el = document.getElementById(id);
+        if(el) el.style.display = "flex";
+    });
+    addChatMessage("SYSTEM", "Spawning into 3D Arena... Camera Engine Ready.");
 }
 
 function exitToLobby() {
     gameActive = false;
-    ['topbarMenu', 'chatContainer', 'actionControls'].forEach(id => document.getElementById(id).style.display = "none");
+    ['topbarMenu', 'chatContainer', 'actionControls'].forEach(id => {
+        let el = document.getElementById(id);
+        if(el) el.style.display = "none";
+    });
     document.getElementById('mainMenu').style.display = "flex";
 }
 
 function togglePaintMode() {
     player.activePaintTool = player.activePaintTool === "brush" ? null : "brush";
-    addChatMessage("SYSTEM", player.activePaintTool ? "Paint tool armed. Tap block to sample texture!" : "Paint tool removed.");
+    addChatMessage("SYSTEM", player.activePaintTool ? "Paint tool armed!" : "Paint tool stowed away.");
 }
 
 function cyclePoses() {
     const poses = ["stand", "crouch", "flat"];
     player.currentPose = poses[(poses.indexOf(player.currentPose) + 1) % poses.length];
-    addChatMessage("SYSTEM", `Form changed to: ${player.currentPose.toUpperCase()}`);
+    addChatMessage("SYSTEM", `Form shifted to: ${player.currentPose.toUpperCase()}`);
 }
 
 function updateGameTick() {
     if (!gameActive) return;
 
-    // Turn Rotation Angle Inputs
+    // Handle Keyboard Turning
     if (keysPressed['a'] || keysPressed['arrowleft']) player.angle -= player.rotateSpeed;
     if (keysPressed['d'] || keysPressed['arrowright']) player.angle += player.rotateSpeed;
 
-    // Forward/Backward Step Vector Updates
     let moveStep = 0;
     if (keysPressed['w'] || keysPressed['arrowup']) moveStep = player.speed;
     if (keysPressed['s'] || keysPressed['arrowdown']) moveStep = -player.speed;
 
+    // Handle Mobile Virtual Touch Joystick
     if (joystick.active) {
-        player.angle += joystick.moveX * 0.03;
+        player.angle += joystick.moveX * 0.04;
         moveStep = -joystick.moveY * player.speed;
     }
 
@@ -85,29 +96,41 @@ function updateGameTick() {
         let newX = player.x + Math.cos(player.angle) * moveStep;
         let newY = player.y + Math.sin(player.angle) * moveStep;
         
-        // Accurate grid cell bounding collision prevention
-        if (MAP[Math.floor(player.y / GRID_SIZE)][Math.floor(newX / GRID_SIZE)] === 0) player.x = newX;
-        if (MAP[Math.floor(newY / GRID_SIZE)][Math.floor(player.x / GRID_SIZE)] === 0) player.y = newY;
+        let gridX = Math.floor(newX / GRID_SIZE);
+        let gridY = Math.floor(newY / GRID_SIZE);
+        let currGridX = Math.floor(player.x / GRID_SIZE);
+        let currGridY = Math.floor(player.y / GRID_SIZE);
+
+        // Safe Map Bound Check Collision Prevention
+        if (gridX >= 0 && gridX < MAP_W && currGridY >= 0 && currGridY < MAP_H) {
+            if (MAP[currGridY][gridX] === 0) player.x = newX;
+        }
+        if (currGridX >= 0 && currGridX < MAP_W && gridY >= 0 && gridY < MAP_H) {
+            if (MAP[gridY][currGridX] === 0) player.y = newY;
+        }
     }
 }
 
-// 3D DEPTH PROJECTION RENDERING LOOP (ROBLOX 3D RAYCASTER)
+// THE MOBILE-OPTIMIZED 3D RAYCASTER
 function gameLoop() {
     updateGameTick();
     
     if (!gameActive) {
-        ctx.fillStyle = "#0c0b14"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-        requestAnimationFrame(gameLoop); return;
+        ctx.fillStyle = "#0c0b14"; 
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        requestAnimationFrame(gameLoop); 
+        return;
     }
 
-    // 1. Draw 3D Horizon Sky & Floor Plane fields
-    ctx.fillStyle = "#14161f"; ctx.fillRect(0, 0, canvas.width, canvas.height / 2);
-    ctx.fillStyle = "#222633"; ctx.fillRect(0, canvas.height / 2, canvas.width, canvas.height / 2);
+    // Sky & Floor
+    ctx.fillStyle = "#161925"; ctx.fillRect(0, 0, canvas.width, canvas.height / 2);
+    ctx.fillStyle = "#24293a"; ctx.fillRect(0, canvas.height / 2, canvas.width, canvas.height / 2);
 
-    // 2. Projection Casting Field of View Parameters
-    let numRays = canvas.width;
-    let deltaAngle = player.fov / numRays;
-    let startAngle = player.angle - player.fov / 2;
+    // FIXED RAY COUNT: Prevents mobile crashes!
+    const numRays = 120; 
+    const columnWidth = Math.ceil(canvas.width / numRays);
+    const deltaAngle = player.fov / numRays;
+    const startAngle = player.angle - player.fov / 2;
 
     for (let i = 0; i < numRays; i++) {
         let rayAngle = startAngle + i * deltaAngle;
@@ -115,10 +138,12 @@ function gameLoop() {
         let hitWall = false;
         let wallType = 0;
 
-        let cos = Math.cos(rayAngle), sin = Math.sin(rayAngle);
+        let cos = Math.cos(rayAngle);
+        let sin = Math.sin(rayAngle);
 
-        while (!hitWall && distance < 800) {
-            distance += 2;
+        // Scan environment line vectors
+        while (!hitWall && distance < 1000) {
+            distance += 4; // Bigger steps = lightning-fast execution
             let checkX = Math.floor((player.x + cos * distance) / GRID_SIZE);
             let checkY = Math.floor((player.y + sin * distance) / GRID_SIZE);
 
@@ -127,58 +152,56 @@ function gameLoop() {
                     hitWall = true;
                     wallType = MAP[checkY][checkX];
                 }
+            } else {
+                break; // Break loop if looking outside bounds
             }
         }
 
-        // Fix fish-eye perspective camera distortion lens warp
+        // Fix fish-eye warp lens projection distortion
         let correctedDist = distance * Math.cos(rayAngle - player.angle);
-        let wallHeight = Math.min(canvas.height, (GRID_SIZE * canvas.height) / correctedDist);
+        if (correctedDist < 1) correctedDist = 1;
+        
+        let wallHeight = (GRID_SIZE * canvas.height) / correctedDist;
 
-        // Map colors to wall textures matching the video chunks
-        let col = "#3e4656"; // Wall type 1
-        if (wallType === 2) col = "#a8744f"; // Wood crates
-        if (wallType === 3) col = "#00ffcc"; // Neon blocks
-        if (wallType === 4) col = "#ebc45b"; // Gold blocks
+        // Color mapping matching video components
+        let col = "#3e4656"; 
+        if (wallType === 2) col = "#a8744f"; // Wooden texture structures
+        if (wallType === 3) col = "#00ffcc"; // Chameleon neon cells
+        if (wallType === 4) col = "#ebc45b"; // Solid Gold blocks
 
-        // Apply dark atmospheric lighting depth dropoff shaders
+        // Perspective depth shading
         ctx.fillStyle = col;
-        let shadeFactor = Math.max(0.1, 1 - (correctedDist / 600));
+        let shadeFactor = Math.max(0.15, 1 - (correctedDist / 700));
         ctx.globalAlpha = shadeFactor;
         
-        ctx.fillRect(i, (canvas.height - wallHeight) / 2, 1, wallHeight);
+        ctx.fillRect(i * columnWidth, (canvas.height - wallHeight) / 2, columnWidth + 1, wallHeight);
         ctx.globalAlpha = 1.0;
     }
 
-    // 3. Render Paint Mode Overlay Interface Matrix
+    // Paint UI Display Tracker
     if (player.activePaintTool) {
-        let size = 120;
-        let cx = canvas.width / 2, cy = canvas.height - 130;
-        
-        ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(cx - 100, cy - 40, 200, 80);
-        ctx.fillStyle = player.selectedColor; ctx.beginPath(); ctx.arc(cx, cy, 25, 0, 2*Math.PI); ctx.fill();
-        ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
-        
-        ctx.fillStyle = "#fff"; ctx.font = "12px sans-serif"; ctx.textAlign = "center";
-        ctx.fillText("ACTIVE COLOR BUFFER", cx, cy - 30);
+        let cx = canvas.width / 2, cy = canvas.height - 120;
+        ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(cx - 90, cy - 30, 180, 60);
+        ctx.fillStyle = player.selectedColor; ctx.beginPath(); ctx.arc(cx, cy, 18, 0, 2*Math.PI); ctx.fill();
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
     }
 
-    // 4. Mobile Joystick rendering loops
+    // Joystick Overlay
     if (joystick.active) {
-        ctx.fillStyle = "rgba(255,255,255,0.1)"; ctx.beginPath(); ctx.arc(joystick.startX, joystick.startY, 45, 0, 2*Math.PI); ctx.fill();
+        ctx.fillStyle = "rgba(255,255,255,0.1)"; ctx.beginPath(); ctx.arc(joystick.startX, joystick.startY, 40, 0, 2*Math.PI); ctx.fill();
         ctx.fillStyle = "#00ffcc"; ctx.beginPath(); ctx.arc(joystick.curX, joystick.curY, 15, 0, 2*Math.PI); ctx.fill();
     }
 
     requestAnimationFrame(gameLoop);
 }
 
-// Tap environment tiles to read texture colors instantly
+// Click/Tap to Eyedrop Sample Map Textures
 canvas.addEventListener("mousedown", (e) => {
     if (!gameActive) return;
     if (player.activePaintTool === "brush" && e.clientY < canvas.height / 2) {
-        // Sample color index tracking
         let sampleColors = ["#3e4656", "#a8744f", "#00ffcc", "#ebc45b"];
         player.selectedColor = sampleColors[Math.floor(Math.random() * sampleColors.length)];
-        addChatMessage("SYSTEM", `Eyedropper Sampled Color: ${player.selectedColor}`);
+        addChatMessage("SYSTEM", `Eyedropper Sampled: ${player.selectedColor}`);
     }
 });
 
@@ -193,8 +216,8 @@ function handleTouchMove(cx, cy) {
     if (!joystick.active) return;
     joystick.curX = cx; joystick.curY = cy;
     let dx = cx - joystick.startX, dy = cy - joystick.startY, dist = Math.sqrt(dx*dx + dy*dy);
-    if (dist > 45) { dx = (dx / dist) * 45; dy = (dy / dist) * 45; joystick.curX = joystick.startX + dx; joystick.curY = joystick.startY + dy; }
-    joystick.moveX = dx / 45; joystick.moveY = dy / 45;
+    if (dist > 40) { dx = (dx / dist) * 40; dy = (dy / dist) * 40; joystick.curX = joystick.startX + dx; joystick.curY = joystick.startY + dy; }
+    joystick.moveX = dx / 40; joystick.moveY = dy / 40;
 }
 
 canvas.addEventListener("touchstart", (e) => { let t = e.changedTouches[0]; handleTouchStart(t.clientX, t.clientY); });
@@ -207,8 +230,8 @@ function sendChatMessage() {
 }
 function addChatMessage(s, t) {
     const b = document.getElementById('chatMessages'), e = document.createElement('div');
-    e.innerHTML = `<strong>${s}:</strong> ${t}`; b.appendChild(e); b.scrollTop = b.scrollHeight;
+    e.innerHTML = `<strong>${s}:</strong> ${t}`; if(b) { b.appendChild(e); b.scrollTop = b.scrollHeight; }
 }
 
-resizeCanvas();
 requestAnimationFrame(gameLoop);
+            
