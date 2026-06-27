@@ -44,7 +44,7 @@ resizeCanvas();
 
 function selectGameMode() {
     let inputName = document.getElementById('usernameFallback').value.trim();
-    if(inputName) playerData.username = inputName;
+    if(inputName) playerData.username = inputName; Player
     
     gameActive = true;
     document.getElementById('mainMenu').style.display = "none";
@@ -52,7 +52,7 @@ function selectGameMode() {
         let el = document.getElementById(id);
         if(el) el.style.display = "flex";
     });
-    addChatMessage("SYSTEM", "Spawning into 3D Arena... Camera Engine Ready.");
+    addChatMessage("SYSTEM", "Spawning... Camera Engine Ready.");
 }
 
 function exitToLobby() {
