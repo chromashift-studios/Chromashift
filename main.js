@@ -4,40 +4,51 @@ let playerData = JSON.parse(localStorage.getItem('chromashift_save')) || {
     coins: 150
 };
 
-// Global registry for live admins running on this session
 let adminList = [];
-
 let currentSelectedTool = null;
 let isUserAdmin = false;
 let currentActiveMode = "singleplayer";
 
-// --- FETCH ADMINS FROM THE SEPARATE FILE ---
+// --- MAP ENGINE CONSTANTS ---
+const MAP_SIZE = 100000; 
+const GRID_SIZE = 50;   
+
+// Camera vectors
+let camera = { x: 50000, y: 50000 }; 
+let isDragging = false;
+let startDragX = 0, startDragY = 0;
+
+// Placed map elements storage
+let mapBlocks = JSON.parse(localStorage.getItem('chromashift_map_blocks')) || [];
+
+let worldSpawnPoints = JSON.parse(localStorage.getItem('chromashift_spawns')) || {
+    1: { x: 50000, y: 50020 }
+};
+
+// Canvas references
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resizeCanvas);
+resizeCanvas();
+
+// --- FETCH ADMINS FROM FILE ---
 async function loadAdminFile() {
     try {
-        // Fetch the list from your new admins.json file
         const response = await fetch('admins.json');
         const fileAdmins = await response.json();
-        
-        // Merge the file list with any dynamically added admins saved locally
         let localAdmins = JSON.parse(localStorage.getItem('chromashift_admins')) || [];
         adminList = [...new Set([...fileAdmins, ...localAdmins])];
-        
-        // Check permissions once the data is loaded
         checkAdminStatus();
     } catch (error) {
-        console.error("Could not load admins.json file:", error);
-        // Fallback to local storage if file fetch fails
         adminList = JSON.parse(localStorage.getItem('chromashift_admins')) || [];
         checkAdminStatus();
     }
 }
-
-// --- WORLD METADATA STORAGE ---
-let worldSpawnPoints = JSON.parse(localStorage.getItem('chromashift_spawns')) || {
-    1: { x: 100, y: 200 },
-    2: { x: 300, y: 200 },
-    3: { x: 500, y: 200 }
-};
 
 function checkAdminStatus() {
     if (playerData.email && adminList.map(e => e.toLowerCase()).includes(playerData.email.toLowerCase())) {
@@ -45,7 +56,7 @@ function checkAdminStatus() {
         document.getElementById('adminBadge').style.display = "block";
         document.getElementById('adminConsole').style.display = "flex"; 
         document.getElementById('builderPanel').style.display = "flex"; 
-        logToConsole("SYSTEM", "Core system diagnostic check ready. Admin authorized.", true);
+        logToConsole("SYSTEM", "Admin authorization approved.", true);
     } else {
         isUserAdmin = false;
         document.getElementById('adminBadge').style.display = "none";
@@ -56,7 +67,7 @@ function checkAdminStatus() {
 
 function updateMenuUI() {
     document.getElementById('userBadge').innerText = `Logged in as: ${playerData.username}`;
-    loadAdminFile(); // Kicks off the file loader sequence
+    loadAdminFile();
 }
 
 function handleGoogleSignIn(response) {
@@ -73,28 +84,137 @@ function parseJwt(token) {
     return JSON.parse(window.atob(base64));
 }
 
-// --- MODE SELECTOR CHANNELS ---
+// --- GAME RUNTIME LOOPS ---
 function selectGameMode(modeType) {
     currentActiveMode = modeType;
     document.getElementById('mainMenu').style.display = "none";
     document.getElementById('chatContainer').style.display = "flex";
     
     document.getElementById('activeModeStatus').innerText = modeType.toUpperCase() + " MODE";
-    addChatMessage("SYSTEM", `Initialized engine running: [${modeType.toUpperCase()}]`);
+    addChatMessage("SYSTEM", `Lobby connected: [${modeType.toUpperCase()}]`);
 
-    if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape').catch(err => {
-            console.log("Automated orientation lock pending layout resolution.");
-        });
-    }
+    // Center camera on Spawn point 1
+    const activeSpawn = worldSpawnPoints[1] || { x: 50000, y: 50000 };
+    camera.x = activeSpawn.x - canvas.width / 2;
+    camera.y = activeSpawn.y - canvas.height / 2;
 
-    const activeSpawn = worldSpawnPoints[1] || { x: 100, y: 100 };
-    addChatMessage("SYSTEM", `Player spawned at vector coordinate: (${activeSpawn.x}, ${activeSpawn.y})`);
+    addChatMessage("SYSTEM", `Spawned safely at: (${Math.floor(activeSpawn.x)}, ${Math.floor(activeSpawn.y)})`);
+    
+    // Kickstart rendering frame ticks
+    requestAnimationFrame(gameLoop);
 }
 
-function openShop() { alert("Store database offline."); }
+// --- 100,000 x 100,000 RENDER MATRIX ---
+function gameLoop() {
+    // Clear display buffer
+    ctx.fillStyle = "#161920";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-// --- STANDARDIZED PLAYER CHAT HUB ---
+    ctx.save();
+    // Translate rendering grid positions to camera viewport coordinate mappings
+    ctx.translate(-camera.x, -camera.y);
+
+    // Render Green Grass Land base boundary borders
+    ctx.fillStyle = "#1e3d23";
+    ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
+
+    // Draw Grid Network segments visible to camera field
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+    ctx.lineWidth = 1;
+
+    let startX = Math.max(0, Math.floor(camera.x / GRID_SIZE) * GRID_SIZE);
+    let endX = Math.min(MAP_SIZE, startX + canvas.width + GRID_SIZE);
+    let startY = Math.max(0, Math.floor(camera.y / GRID_SIZE) * GRID_SIZE);
+    let endY = Math.min(MAP_SIZE, startY + canvas.height + GRID_SIZE);
+
+    for (let x = startX; x <= endX; x += GRID_SIZE) {
+        ctx.beginPath(); ctx.moveTo(x, startY); ctx.lineTo(x, endY); ctx.stroke();
+    }
+    for (let y = startY; y <= endY; y += GRID_SIZE) {
+        ctx.beginPath(); ctx.moveTo(startX, y); ctx.lineTo(endX, y); ctx.stroke();
+    }
+
+    // Render placed block arrays
+    mapBlocks.forEach(b => {
+        if(b.type === 'wall') ctx.fillStyle = "#a64b2a";
+        else if(b.type === 'floor') ctx.fillStyle = "#2a6fa6";
+        ctx.fillRect(b.x, b.y, GRID_SIZE, GRID_SIZE);
+        ctx.strokeStyle = "rgba(0,0,0,0.2)";
+        ctx.strokeRect(b.x, b.y, GRID_SIZE, GRID_SIZE);
+    });
+
+    // Draw current active saved Spawns indicators
+    Object.keys(worldSpawnPoints).forEach(id => {
+        let sp = worldSpawnPoints[id];
+        ctx.fillStyle = "#00ffcc";
+        ctx.beginPath();
+        ctx.arc(sp.x, sp.y, 12, 0, 2 * Math.PI);
+        ctx.fill();
+    });
+
+    ctx.restore();
+    requestAnimationFrame(gameLoop);
+}
+
+// --- DRAG TO MOVE & BLOCK PLACE SYSTEM ---
+canvas.addEventListener("mousedown", (e) => {
+    isDragging = true;
+    startDragX = e.clientX; startDragY = e.clientY;
+});
+
+canvas.addEventListener("mousemove", (e) => {
+    if (!isDragging) return;
+    let diffX = e.clientX - startDragX;
+    let diffY = e.clientY - startDragY;
+
+    // Shift camera space positions
+    camera.x -= diffX; camera.y -= diffY;
+    startDragX = e.clientX; startDragY = e.clientY;
+
+    // Bounds limit check
+    camera.x = Math.max(0, Math.min(MAP_SIZE - canvas.width, camera.x));
+    camera.y = Math.max(0, Math.min(MAP_SIZE - canvas.height, camera.y));
+});
+
+window.addEventListener("mouseup", () => { isDragging = false; });
+
+// Touch inputs for mobile devices
+canvas.addEventListener("touchstart", (e) => {
+    isDragging = true;
+    startDragX = e.touches[0].clientX; startDragY = e.touches[0].clientY;
+});
+canvas.addEventListener("touchmove", (e) => {
+    if (!isDragging) return;
+    let diffX = e.touches[0].clientX - startDragX;
+    let diffY = e.touches[0].clientY - startDragY;
+    camera.x -= diffX; camera.y -= diffY;
+    startDragX = e.touches[0].clientX; startDragY = e.touches[0].clientY;
+});
+canvas.addEventListener("touchend", () => { isDragging = false; });
+
+// Handle Block placements on tapping screen map mesh
+canvas.addEventListener("click", (e) => {
+    if (!isUserAdmin || !currentSelectedTool) return;
+    
+    // Convert click vector directly to absolute world positioning offsets
+    let worldX = e.clientX + camera.x;
+    let worldY = e.clientY + camera.y;
+
+    // Snap positions seamlessly onto grid dimensions
+    let gridX = Math.floor(worldX / GRID_SIZE) * GRID_SIZE;
+    let gridY = Math.floor(worldY / GRID_SIZE) * GRID_SIZE;
+
+    if (currentSelectedTool === 'erase') {
+        mapBlocks = mapBlocks.filter(b => !(b.x === gridX && b.y === gridY));
+    } else {
+        // Filter overlaps and add element node record
+        mapBlocks = mapBlocks.filter(b => !(b.x === gridX && b.y === gridY));
+        mapBlocks.push({ x: gridX, y: gridY, type: currentSelectedTool });
+    }
+    localStorage.setItem('chromashift_map_blocks', JSON.stringify(mapBlocks));
+});
+
+// --- COMMAND INTERACTION PORTS ---
 function sendChatMessage() {
     const input = document.getElementById('chatInput');
     const txt = input.value.trim();
@@ -112,7 +232,6 @@ function addChatMessage(sender, text) {
     box.scrollTop = box.scrollHeight;
 }
 
-// --- SECURE CONSOLE INTERACTION CONTROL MATRIX ---
 function executeConsoleCommand() {
     const input = document.getElementById('consoleInput');
     const fullCommand = input.value.trim();
@@ -121,44 +240,33 @@ function executeConsoleCommand() {
 
     logToConsole(playerData.username, fullCommand, false);
 
-    // COMMAND RUNTIME SWITCH PARSER
     if (fullCommand.startsWith("!admin ")) {
         const targetEmail = fullCommand.replace("!admin ", "").trim().toLowerCase();
         if (targetEmail && !adminList.includes(targetEmail)) {
             adminList.push(targetEmail);
-            
-            // Save newly promoted admins locally
             let localAdmins = JSON.parse(localStorage.getItem('chromashift_admins')) || [];
-            if(!localAdmins.includes(targetEmail)) {
-                localAdmins.push(targetEmail);
-                localStorage.setItem('chromashift_admins', JSON.stringify(localAdmins));
-            }
-            
-            logToConsole("SYSTEM", `Successfully registered admin profile data: ${targetEmail}`, true);
+            localAdmins.push(targetEmail);
+            localStorage.setItem('chromashift_admins', JSON.stringify(localAdmins));
+            logToConsole("SYSTEM", `Promoted email: ${targetEmail}`, true);
         }
     } 
     else if (fullCommand.startsWith("!setspawn ")) {
         const spawnId = parseInt(fullCommand.replace("!setspawn ", "").trim());
         if (spawnId >= 1 && spawnId <= 5) {
-            const targetX = 150 + (spawnId * 40);
-            const targetY = 250;
+            // Pin the spawn point directly to the camera center position
+            let centerX = camera.x + canvas.width / 2;
+            let centerY = camera.y + canvas.height / 2;
             
-            worldSpawnPoints[spawnId] = { x: targetX, y: targetY };
+            worldSpawnPoints[spawnId] = { x: centerX, y: centerY };
             localStorage.setItem('chromashift_spawns', JSON.stringify(worldSpawnPoints));
-            logToConsole("SYSTEM", `Spawn Configuration Slot [${spawnId}] pinned at: (${targetX}, ${targetY})`, true);
-        } else {
-            logToConsole("ENGINE", "Error: Spawn setup slot configuration index out of range (use 1-5).", true);
+            logToConsole("SYSTEM", `Spawn Slot [${spawnId}] saved at center: (${Math.floor(centerX)}, ${Math.floor(centerY)})`, true);
         }
     }
     else if (fullCommand === "!clearconsole") {
         document.getElementById('consoleLog').innerHTML = "";
     } 
     else if (fullCommand.startsWith("!announce ")) {
-        const announcement = fullCommand.replace("!announce ", "").trim();
-        addChatMessage("SYSTEM", `🌐 ADMIN: ${announcement}`);
-    } 
-    else {
-        logToConsole("ENGINE", "Unknown system command entry token.", true);
+        addChatMessage("SYSTEM", `🌐 ADMIN: ${fullCommand.replace("!announce ", "")}`);
     }
 }
 
@@ -167,27 +275,13 @@ function logToConsole(sender, text, isSystemGenerated) {
     const line = document.createElement('div');
     line.className = "console-line";
     let timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-    if (isSystemGenerated) {
-        line.innerHTML = `[${timestamp}] <span class="console-tag-system">[${sender}]</span> ${text}`;
-    } else {
-        line.innerHTML = `[${timestamp}] <span class="console-tag-admin">[ADMIN - ${sender}]:</span> ${text}`;
-    }
-
+    line.innerHTML = isSystemGenerated ? `[${timestamp}] <span class="console-tag-system">[${sender}]</span> ${text}` : `[${timestamp}] <span class="console-tag-admin">[ADMIN - ${sender}]:</span> ${text}`;
     logBox.appendChild(line);
     logBox.scrollTop = logBox.scrollHeight;
 }
 
-// --- CLICK NODE MESH BINDINGS ---
-function setBuildItem(toolType) {
-    currentSelectedTool = toolType;
-    if (isUserAdmin) logToConsole("SYSTEM", `Selected node matrix tracking updated: ${toolType.toUpperCase()}`, true);
-}
-
-document.getElementById('gameCanvas').addEventListener('click', function(e) {
-    if (!isUserAdmin || !currentSelectedTool) return;
-    const r = this.getBoundingClientRect();
-    logToConsole("BUILDER", `Render block placement element at coordinate map values: (${Math.floor(e.clientX - r.left)}, ${Math.floor(e.clientY - r.top)})`, true);
-});
+function setBuildItem(toolType) { currentSelectedTool = toolType; }
+function openShop() { alert("Shop database offline."); }
 
 updateMenuUI();
+            
