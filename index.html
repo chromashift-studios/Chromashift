@@ -9,13 +9,6 @@
 </head>
 <body>
 
-    <div id="landscapeWarning">
-        <div class="warning-box">
-            <div class="rotate-icon">🔄</div>
-            <div>Please rotate your device to Landscape mode to play!</div>
-        </div>
-    </div>
-
     <canvas id="gameCanvas"></canvas>
 
     <div class="ui-layer">
@@ -23,16 +16,17 @@
         <div id="mainMenu" class="interactive panel-blur">
             <h1 class="game-title">Chromashift</h1>
             <div class="user-badge" id="userBadge">Guest Player</div>
-            <div class="admin-badge" id="adminBadge" style="display: none;">🛠️ BUILDER / ADMIN MODE ACTIVE</div>
+            <div class="admin-badge" id="adminBadge" style="display: none;">🛠️ ADMIN / BUILDER ACTIVE</div>
             
             <div class="menu-buttons">
-                <button class="btn btn-play" onclick="startGame()">ENTER MATCH</button>
+                <button class="btn btn-play" onclick="selectGameMode('singleplayer')">🟢 SINGLEPLAYER</button>
+                <button class="btn btn-multi" onclick="selectGameMode('multiplayer')">🌐 MULTIPLAYER MATCH</button>
                 <button class="btn btn-shop" onclick="openShop()">THE SHOP</button>
             </div>
 
             <div id="googleLoginWrapper">
                 <div id="g_id_onload"
-                     data-client_id="YOUR_NEW_CLIENT_ID_HERE.apps.googleusercontent.com"
+                     data-client_id="633736205688-igj2r9tnl31rh85b1rqiot9ts7vfc1iq.apps.googleusercontent.com"
                      data-context="signin"
                      data-ux_mode="popup"
                      data-callback="handleGoogleSignIn"
@@ -45,18 +39,37 @@
         <div id="chatContainer" class="interactive panel-blur" style="display: none;">
             <div id="chatMessages"></div>
             <div class="chat-input-row">
-                <input type="text" id="chatInput" placeholder="Press Enter or type chat/commands here..." onkeydown="if(event.key === 'Enter') sendChatMessage()">
+                <input type="text" id="chatInput" placeholder="Type message or command..." onkeydown="if(event.key === 'Enter') sendChatMessage()">
                 <button onclick="sendChatMessage()">Send</button>
+            </div>
+        </div>
+
+        <div id="adminConsole" class="interactive" style="display: none;">
+            <div class="console-body panel-blur">
+                <div class="console-header">💻 SECURE CORE DEVELOPER CONSOLE</div>
+                <div id="consoleLog"></div>
+                <div class="console-input-row">
+                    <span class="console-prompt">admin@chromashift:~$</span>
+                    <input type="text" id="consoleInput" placeholder="Execute console string..." onkeydown="if(event.key === 'Enter') executeConsoleCommand()">
+                </div>
+            </div>
+            
+            <div class="console-help panel-blur">
+                <h4>📜 GAME COMMANDS</h4>
+                <ul>
+                    <li><span class="cmd-syntax">!admin [gmail]</span> <br><small>Add new builder</small></li>
+                    <li><span class="cmd-syntax">!setspawn [1-5]</span> <br><small>Save player spawn layout</small></li>
+                    <li><span class="cmd-syntax">!announce [text]</span> <br><small>Global alert message</small></li>
+                </ul>
+                <div class="console-status" id="activeModeStatus">LOBBY MODE</div>
             </div>
         </div>
 
         <div id="builderPanel" class="interactive panel-blur" style="display: none;">
             <h3>🛠️ Builder Tools</h3>
-            <p>Tap a block type, then click the game screen to place it!</p>
             <div class="build-options">
                 <button class="btn-tool" onclick="setBuildItem('wall')">🧱 Wall Block</button>
                 <button class="btn-tool" onclick="setBuildItem('floor')">🟦 Floor Tile</button>
-                <button class="btn-tool" onclick="setBuildItem('spawn')">🏁 Spawn Point</button>
                 <button class="btn-tool clear" onclick="setBuildItem('erase')">❌ Eraser</button>
             </div>
         </div>
