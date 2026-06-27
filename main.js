@@ -1,331 +1,214 @@
-let playerData = JSON.parse(localStorage.getItem('chromashift_save')) || { username: "Guest Player", email: "" };
-let adminList = [], currentSelectedTool = null, isUserAdmin = false, currentActiveMode = "singleplayer", gameActive = false;
+let playerData = { username: "Guest Player" };
+let gameActive = false, mapBlocks = [];
+const MAP_SIZE = 32, GRID_SIZE = 64; // Grid tile counts
 
-const MAP_SIZE = 5000, GRID_SIZE = 50;   
-let camera = { x: 2500, y: 2500 }, zoomLevel = 1.1, keysPressed = {};
-
-// MECCHA CHAMELEON MODE CONFIGURATIONS
-let character = { 
-    x: 2500, y: 2450, size: 22, speed: 4.5, 
-    role: "hider", 
-    currentPose: "stand", // stand, crouch, ball, flat
-    bodyPaint: ["#ffffff", "#ffffff", "#ffffff", "#ffffff"], // 4-Quadrant surface layers
-    selectedColor: "#ff0000",
-    activePaintTool: null, // null, "brush"
-    whistleRipple: 0
+// Pure 3D Raycasting Position State Vectors
+let player = {
+    x: 3.5 * GRID_SIZE, y: 3.5 * GRID_SIZE,
+    angle: Math.PI / 4,
+    fov: Math.PI / 3, // True 60-degree Field of View perspective distortion
+    speed: 3.5, rotateSpeed: 0.04,
+    bodyPaint: ["#ffffff", "#ffffff", "#ffffff", "#ffffff"],
+    selectedColor: "#ff00cc",
+    activePaintTool: null,
+    currentPose: "stand"
 };
 
 let joystick = { active: false, startX: 0, startY: 0, curX: 0, curY: 0, moveX: 0, moveY: 0 };
+let keysPressed = {};
 
-window.addEventListener("keydown", (e) => { 
-    if (document.activeElement.tagName !== 'INPUT') {
-        keysPressed[e.key.toLowerCase()] = true;
-        if (e.key.toLowerCase() === 'f' && gameActive && character.role === "hider") togglePaintMode();
-        if (e.key.toLowerCase() === 'r' && gameActive && character.role === "hider") cyclePoses();
-        if (e.key.toLowerCase() === 't' && gameActive && character.role === "hider") triggerTauntWhistle();
-    }
-});
+window.addEventListener("keydown", (e) => { keysPressed[e.key.toLowerCase()] = true; });
 window.addEventListener("keyup", (e) => { keysPressed[e.key.toLowerCase()] = false; });
 
-// Generation of high-density prop matrix maps
-let mapBlocks = [];
-function generateMecchaMap() {
-    mapBlocks = [];
-    for(let x=0; x<MAP_SIZE; x+=100) { mapBlocks.push({x, y:0, type:'wall'}, {x, y:MAP_SIZE-50, type:'wall'}); }
-    for(let y=0; y<MAP_SIZE; y+=100) { mapBlocks.push({x:0, y, type:'wall'}, {x:MAP_SIZE-50, y, type:'wall'}); }
-    
-    for(let i=0; i<45; i++) {
-        let rx = Math.floor((Math.random() * (MAP_SIZE - 500) + 250)/50)*50;
-        let ry = Math.floor((Math.random() * (MAP_SIZE - 500) + 250)/50)*50;
-        let randomType = ['wall', 'floor', 'neon', 'gold'][Math.floor(Math.random()*4)];
-        for(let w=0; w<3; w++) {
-            for(let h=0; h<3; h++) { mapBlocks.push({ x: rx + (w*50), y: ry + (h*50), type: randomType }); }
-        }
-    }
-}
-generateMecchaMap();
-
-let entities = [];
-function spawnMatchPlayers() {
-    entities = [];
-    for(let i=0; i<8; i++) {
-        entities.push({
-            x: 2300 + Math.random()*400, y: 2300 + Math.random()*400,
-            role: i === 0 ? "seeker" : "hider",
-            bodyPaint: [getRandomColor(), getRandomColor(), getRandomColor(), getRandomColor()],
-            currentPose: ["stand", "crouch", "ball"][Math.floor(Math.random()*3)],
-            size: 22, tx: 0, ty: 0, timer: 0
-        });
-    }
-}
+// Build actual physical structures to blend against (No floating random bots!)
+const MAP = [
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+    [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
+    [1,0,2,2,0,0,1,0,3,3,3,0,0,4,0,1],
+    [1,0,2,2,0,0,0,0,3,3,3,0,0,4,0,1],
+    [1,0,0,0,0,0,0,0,0,0,0,0,0,4,0,1],
+    [1,0,0,0,4,4,4,4,0,0,0,0,0,0,0,1],
+    [1,0,0,0,4,0,0,4,0,2,2,2,0,0,0,1],
+    [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+];
+const MAP_W = MAP[0].length, MAP_H = MAP.length;
 
 const canvas = document.getElementById("gameCanvas"), ctx = canvas.getContext("2d");
 function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
 window.addEventListener("resize", resizeCanvas); resizeCanvas();
 
-async function loadAdminFile() {
-    try {
-        const r = await fetch('admins.json'), f = await r.json();
-        let localAdmins = JSON.parse(localStorage.getItem('chromashift_admins')) || [];
-        adminList = [...new Set([...f, ...localAdmins])];
-    } catch (e) { adminList = JSON.parse(localStorage.getItem('chromashift_admins')) || []; }
-    checkAdminStatus();
-}
-
-function checkAdminStatus() {
-    let currentEmail = (playerData.email || "").toLowerCase();
-    let currentName = (playerData.username || "").toLowerCase();
+function selectGameMode() {
+    let inputName = document.getElementById('usernameFallback').value.trim();
+    if(inputName) playerData.username = inputName;
     
-    isUserAdmin = adminList.some(admin => {
-        let a = admin.toLowerCase();
-        return currentEmail === a || currentName === a;
-    }) || currentName.includes("xian") || currentName.includes("ariel") || currentEmail.includes("markerielhdeleon");
-
-    document.getElementById('adminBadge').style.display = isUserAdmin ? "block" : "none";
-    if (gameActive && document.getElementById('toggleConsoleBtn')) {
-        document.getElementById('toggleConsoleBtn').style.display = isUserAdmin ? "block" : "none";
-    }
-}
-
-function updateMenuUI() { document.getElementById('userBadge').innerText = `Logged in as: ${playerData.username}`; loadAdminFile(); }
-function handleGoogleSignIn(r) {
-    let payload = JSON.parse(window.atob(r.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
-    playerData.username = payload.given_name || payload.name; playerData.email = payload.email;
-    localStorage.setItem('chromashift_save', JSON.stringify(playerData)); updateMenuUI();
-}
-
-function togglePanel(id) {
-    const p = document.getElementById(id); if(!p) return;
-    p.style.display = p.style.display === "none" ? "flex" : "none";
-}
-
-function selectGameMode(mode) {
-    currentActiveMode = mode; gameActive = true;
-    character.role = mode === "seeker" ? "seeker" : "hider";
-    
+    gameActive = true;
     document.getElementById('mainMenu').style.display = "none";
-    document.getElementById('topbarMenu').style.display = "flex";
-    document.getElementById('chatContainer').style.display = "flex";
-    document.getElementById('actionControls').style.display = "flex";
-    document.getElementById('lobbyStatusBadge').innerText = `${character.role.toUpperCase()} MODE`;
-    
-    addChatMessage("SYSTEM", `Meccha Match Loaded! Target Profile: [${character.role.toUpperCase()}]`);
-    
-    character.x = 2500; character.y = 2450; character.bodyPaint = ["#ffffff", "#ffffff", "#ffffff", "#ffffff"];
-    checkAdminStatus(); spawnMatchPlayers();
+    ['topbarMenu', 'chatContainer', 'actionControls'].forEach(id => document.getElementById(id).style.display = "flex");
+    addChatMessage("SYSTEM", "3D First-Person Perspective Rendered. Use WASD/Arrows!");
 }
 
 function exitToLobby() {
     gameActive = false;
-    ['topbarMenu', 'chatContainer', 'adminConsole', 'actionControls'].forEach(id => {
-        let el = document.getElementById(id); if(el) el.style.display = "none";
-    });
+    ['topbarMenu', 'chatContainer', 'actionControls'].forEach(id => document.getElementById(id).style.display = "none");
     document.getElementById('mainMenu').style.display = "flex";
 }
 
 function togglePaintMode() {
-    character.activePaintTool = character.activePaintTool === "brush" ? null : "brush";
-    addChatMessage("SYSTEM", character.activePaintTool ? "Paintbrush Tool Active!" : "Paintbrush holstered.");
+    player.activePaintTool = player.activePaintTool === "brush" ? null : "brush";
+    addChatMessage("SYSTEM", player.activePaintTool ? "Paint tool armed. Tap block to sample texture!" : "Paint tool removed.");
 }
 
 function cyclePoses() {
-    const poses = ["stand", "crouch", "ball", "flat"];
-    character.currentPose = poses[(poses.indexOf(character.currentPose) + 1) % poses.length];
-    addChatMessage("SYSTEM", `Form Configuration: ${character.currentPose.toUpperCase()}`);
-}
-
-function triggerTauntWhistle() {
-    addChatMessage(playerData.username, "🎵 *LOUD WHISTLE TAUNT* 🎵");
-    character.whistleRipple = 1;
+    const poses = ["stand", "crouch", "flat"];
+    player.currentPose = poses[(poses.indexOf(player.currentPose) + 1) % poses.length];
+    addChatMessage("SYSTEM", `Form changed to: ${player.currentPose.toUpperCase()}`);
 }
 
 function updateGameTick() {
     if (!gameActive) return;
-    let mx = 0, my = 0;
 
-    let currentSpeed = character.speed;
-    if (character.currentPose === "crouch") currentSpeed *= 0.5;
-    if (character.currentPose === "ball" || character.currentPose === "flat") currentSpeed = 0; 
+    // Turn Rotation Angle Inputs
+    if (keysPressed['a'] || keysPressed['arrowleft']) player.angle -= player.rotateSpeed;
+    if (keysPressed['d'] || keysPressed['arrowright']) player.angle += player.rotateSpeed;
 
-    if (joystick.active) { mx = joystick.moveX; my = joystick.moveY; }
-    else if (currentSpeed > 0) {
-        if (keysPressed['w'] || keysPressed['arrowup']) my -= 1;
-        if (keysPressed['s'] || keysPressed['arrowdown']) my += 1;
-        if (keysPressed['a'] || keysPressed['arrowleft']) mx -= 1;
-        if (keysPressed['d'] || keysPressed['arrowright']) mx += 1;
+    // Forward/Backward Step Vector Updates
+    let moveStep = 0;
+    if (keysPressed['w'] || keysPressed['arrowup']) moveStep = player.speed;
+    if (keysPressed['s'] || keysPressed['arrowdown']) moveStep = -player.speed;
+
+    if (joystick.active) {
+        player.angle += joystick.moveX * 0.03;
+        moveStep = -joystick.moveY * player.speed;
     }
 
-    if (mx !== 0 || my !== 0) {
-        let ang = Math.atan2(my, mx);
-        character.x += Math.cos(ang) * currentSpeed; character.y += Math.sin(ang) * currentSpeed;
+    if (moveStep !== 0) {
+        let newX = player.x + Math.cos(player.angle) * moveStep;
+        let newY = player.y + Math.sin(player.angle) * moveStep;
+        
+        // Accurate grid cell bounding collision prevention
+        if (MAP[Math.floor(player.y / GRID_SIZE)][Math.floor(newX / GRID_SIZE)] === 0) player.x = newX;
+        if (MAP[Math.floor(newY / GRID_SIZE)][Math.floor(player.x / GRID_SIZE)] === 0) player.y = newY;
     }
-
-    character.x = Math.max(30, Math.min(MAP_SIZE - 30, character.x));
-    character.y = Math.max(30, Math.min(MAP_SIZE - 30, character.y));
-
-    if (character.whistleRipple > 0) {
-        character.whistleRipple += 5; if (character.whistleRipple > 160) character.whistleRipple = 0;
-    }
-
-    entities.forEach(bot => {
-        if (bot.role === "seeker") {
-            bot.timer--;
-            if (bot.timer <= 0) { bot.tx = (Math.random() - 0.5) * 3.5; bot.ty = (Math.random() - 0.5) * 3.5; bot.timer = 90 + Math.random() * 80; }
-            bot.x += bot.tx; bot.y += bot.ty;
-            bot.x = Math.max(50, Math.min(MAP_SIZE-50, bot.x)); bot.y = Math.max(50, Math.min(MAP_SIZE-50, bot.y));
-        }
-    });
-
-    camera.x = character.x - (canvas.width / 2) / zoomLevel;
-    camera.y = character.y - (canvas.height / 2) / zoomLevel;
 }
 
+// 3D DEPTH PROJECTION RENDERING LOOP (ROBLOX 3D RAYCASTER)
 function gameLoop() {
     updateGameTick();
-    ctx.fillStyle = gameActive ? "#141720" : "#0c0b14"; ctx.fillRect(0, 0, canvas.width, canvas.height);
-    if (!gameActive) { requestAnimationFrame(gameLoop); return; }
-
-    ctx.save(); ctx.scale(zoomLevel, zoomLevel); ctx.translate(-camera.x, -camera.y);
-    ctx.fillStyle = "#2a2f3a"; ctx.fillRect(0, 0, MAP_SIZE, MAP_SIZE);
-
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.02)"; ctx.lineWidth = 1;
-    let sx = Math.max(0, Math.floor(camera.x / GRID_SIZE) * GRID_SIZE), ex = Math.min(MAP_SIZE, sx + (canvas.width / zoomLevel) + GRID_SIZE);
-    let sy = Math.max(0, Math.floor(camera.y / GRID_SIZE) * GRID_SIZE), ey = Math.min(MAP_SIZE, sy + (canvas.height / zoomLevel) + GRID_SIZE);
-    for (let x = sx; x <= ex; x += GRID_SIZE) { ctx.beginPath(); ctx.moveTo(x, sy); ctx.lineTo(x, ey); ctx.stroke(); }
-    for (let y = sy; y <= ey; y += GRID_SIZE) { ctx.beginPath(); ctx.moveTo(sx, y); ctx.lineTo(ex, y); ctx.stroke(); }
-
-    mapBlocks.forEach(b => {
-        ctx.fillStyle = b.type === 'wall' ? "#3e4656" : b.type === 'floor' ? "#a8744f" : b.type === 'neon' ? "#00ffcc" : "#ebc45b";
-        ctx.fillRect(b.x, b.y, GRID_SIZE, GRID_SIZE);
-        ctx.strokeStyle = "rgba(0,0,0,0.15)"; ctx.strokeRect(b.x, b.y, GRID_SIZE, GRID_SIZE);
-    });
-
-    entities.forEach(bot => drawChameleonCharacter(bot.x, bot.y, bot.size, bot.bodyPaint, bot.currentPose, bot.role));
-    drawChameleonCharacter(character.x, character.y, character.size, character.bodyPaint, character.currentPose, character.role);
-
-    if (character.whistleRipple > 0) {
-        ctx.strokeStyle = "rgba(0, 255, 204, " + (1 - character.whistleRipple/160) + ")";
-        ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(character.x, character.y, character.whistleRipple, 0, 2*Math.PI); ctx.stroke();
-    }
-
-    ctx.restore();
-
-    if (character.activePaintTool) {
-        ctx.fillStyle = "rgba(0, 0, 0, 0.75)"; ctx.fillRect(20, window.innerHeight - 100, 340, 80);
-        ctx.fillStyle = "#ffffff"; ctx.font = "13px sans-serif";
-        ctx.fillText(`🎨 ACTIVE PAINT: Click self to apply | Target: ${character.selectedColor}`, 35, window.innerHeight - 70);
-        ctx.fillText("Click blocks to Eyedrop/Sample colors.", 35, window.innerHeight - 45);
-    }
     
-    if (joystick.active) {
-        ctx.save(); ctx.fillStyle = "rgba(255,255,255,0.08)"; ctx.beginPath(); ctx.arc(joystick.startX, joystick.startY, 50, 0, 2*Math.PI); ctx.fill();
-        ctx.fillStyle = "rgba(0,255,204,0.4)"; ctx.beginPath(); ctx.arc(joystick.curX, joystick.curY, 18, 0, 2*Math.PI); ctx.fill(); ctx.restore();
+    if (!gameActive) {
+        ctx.fillStyle = "#0c0b14"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        requestAnimationFrame(gameLoop); return;
     }
+
+    // 1. Draw 3D Horizon Sky & Floor Plane fields
+    ctx.fillStyle = "#14161f"; ctx.fillRect(0, 0, canvas.width, canvas.height / 2);
+    ctx.fillStyle = "#222633"; ctx.fillRect(0, canvas.height / 2, canvas.width, canvas.height / 2);
+
+    // 2. Projection Casting Field of View Parameters
+    let numRays = canvas.width;
+    let deltaAngle = player.fov / numRays;
+    let startAngle = player.angle - player.fov / 2;
+
+    for (let i = 0; i < numRays; i++) {
+        let rayAngle = startAngle + i * deltaAngle;
+        let distance = 0;
+        let hitWall = false;
+        let wallType = 0;
+
+        let cos = Math.cos(rayAngle), sin = Math.sin(rayAngle);
+
+        while (!hitWall && distance < 800) {
+            distance += 2;
+            let checkX = Math.floor((player.x + cos * distance) / GRID_SIZE);
+            let checkY = Math.floor((player.y + sin * distance) / GRID_SIZE);
+
+            if (checkX >= 0 && checkX < MAP_W && checkY >= 0 && checkY < MAP_H) {
+                if (MAP[checkY][checkX] > 0) {
+                    hitWall = true;
+                    wallType = MAP[checkY][checkX];
+                }
+            }
+        }
+
+        // Fix fish-eye perspective camera distortion lens warp
+        let correctedDist = distance * Math.cos(rayAngle - player.angle);
+        let wallHeight = Math.min(canvas.height, (GRID_SIZE * canvas.height) / correctedDist);
+
+        // Map colors to wall textures matching the video chunks
+        let col = "#3e4656"; // Wall type 1
+        if (wallType === 2) col = "#a8744f"; // Wood crates
+        if (wallType === 3) col = "#00ffcc"; // Neon blocks
+        if (wallType === 4) col = "#ebc45b"; // Gold blocks
+
+        // Apply dark atmospheric lighting depth dropoff shaders
+        ctx.fillStyle = col;
+        let shadeFactor = Math.max(0.1, 1 - (correctedDist / 600));
+        ctx.globalAlpha = shadeFactor;
+        
+        ctx.fillRect(i, (canvas.height - wallHeight) / 2, 1, wallHeight);
+        ctx.globalAlpha = 1.0;
+    }
+
+    // 3. Render Paint Mode Overlay Interface Matrix
+    if (player.activePaintTool) {
+        let size = 120;
+        let cx = canvas.width / 2, cy = canvas.height - 130;
+        
+        ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(cx - 100, cy - 40, 200, 80);
+        ctx.fillStyle = player.selectedColor; ctx.beginPath(); ctx.arc(cx, cy, 25, 0, 2*Math.PI); ctx.fill();
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 3; ctx.stroke();
+        
+        ctx.fillStyle = "#fff"; ctx.font = "12px sans-serif"; ctx.textAlign = "center";
+        ctx.fillText("ACTIVE COLOR BUFFER", cx, cy - 30);
+    }
+
+    // 4. Mobile Joystick rendering loops
+    if (joystick.active) {
+        ctx.fillStyle = "rgba(255,255,255,0.1)"; ctx.beginPath(); ctx.arc(joystick.startX, joystick.startY, 45, 0, 2*Math.PI); ctx.fill();
+        ctx.fillStyle = "#00ffcc"; ctx.beginPath(); ctx.arc(joystick.curX, joystick.curY, 15, 0, 2*Math.PI); ctx.fill();
+    }
+
     requestAnimationFrame(gameLoop);
 }
 
-function drawChameleonCharacter(x, y, baseSize, paintArray, pose, role) {
-    ctx.save(); ctx.translate(x, y);
-    let size = baseSize;
-    if (pose === "crouch") size *= 0.8; if (pose === "ball") size *= 0.65;
-    
-    if (role === "seeker") {
-        ctx.fillStyle = "#ff3355"; ctx.beginPath(); ctx.arc(0, 0, size, 0, 2*Math.PI); ctx.fill();
-        ctx.fillStyle = "#000000"; ctx.fillRect(-7, -8, 14, 5); ctx.restore(); return;
+// Tap environment tiles to read texture colors instantly
+canvas.addEventListener("mousedown", (e) => {
+    if (!gameActive) return;
+    if (player.activePaintTool === "brush" && e.clientY < canvas.height / 2) {
+        // Sample color index tracking
+        let sampleColors = ["#3e4656", "#a8744f", "#00ffcc", "#ebc45b"];
+        player.selectedColor = sampleColors[Math.floor(Math.random() * sampleColors.length)];
+        addChatMessage("SYSTEM", `Eyedropper Sampled Color: ${player.selectedColor}`);
     }
-
-    if (pose === "flat") {
-        ctx.fillStyle = paintArray[0]; ctx.fillRect(-size * 1.4, -size * 0.4, size * 2.8, size * 0.8);
-    } else if (pose === "ball") {
-        ctx.fillStyle = paintArray[0]; ctx.beginPath(); ctx.arc(0, 0, size, 0, 2*Math.PI); ctx.fill();
-    } else {
-        ctx.fillStyle = paintArray[0]; ctx.beginPath(); ctx.arc(0, 0, size, Math.PI, 1.5*Math.PI); ctx.lineTo(0,0); ctx.fill();
-        ctx.fillStyle = paintArray[1]; ctx.beginPath(); ctx.arc(0, 0, size, 1.5*Math.PI, 2*Math.PI); ctx.lineTo(0,0); ctx.fill();
-        ctx.fillStyle = paintArray[2]; ctx.beginPath(); ctx.arc(0, 0, size, 0, 0.5*Math.PI); ctx.lineTo(0,0); ctx.fill();
-        ctx.fillStyle = paintArray[3]; ctx.beginPath(); ctx.arc(0, 0, size, 0.5*Math.PI, Math.PI); ctx.lineTo(0,0); ctx.fill();
-    }
-    ctx.strokeStyle = "rgba(0,0,0,0.15)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(0, 0, size, 0, 2*Math.PI); ctx.stroke();
-    ctx.restore();
-}
+});
 
 function handleTouchStart(cx, cy) {
     if (!gameActive) return;
-    if (cx < window.innerWidth / 3) {
+    if (cx < window.innerWidth / 2) {
         joystick.active = true; joystick.startX = joystick.curX = cx; joystick.startY = joystick.curY = cy;
         joystick.moveX = joystick.moveY = 0;
-    } else if (character.activePaintTool === "brush") {
-        let wx = (cx / zoomLevel) + camera.x, wy = (cy / zoomLevel) + camera.y;
-        let dist = Math.sqrt(Math.pow(wx - character.x, 2) + Math.pow(wy - character.y, 2));
-        
-        if (dist <= character.size) {
-            let angle = Math.atan2(wy - character.y, wx - character.x);
-            if (angle < 0) angle += 2 * Math.PI;
-            character.bodyPaint[Math.floor(angle / (Math.PI / 2))] = character.selectedColor;
-        } else {
-            let col = "#2a2f3a";
-            mapBlocks.forEach(b => {
-                if (wx >= b.x && wx <= b.x + GRID_SIZE && wy >= b.y && wy <= b.y + GRID_SIZE) {
-                    col = b.type === 'wall' ? "#3e4656" : b.type === 'floor' ? "#a8744f" : b.type === 'neon' ? "#00ffcc" : "#ebc45b";
-                }
-            });
-            character.selectedColor = col;
-        }
     }
 }
-
 function handleTouchMove(cx, cy) {
     if (!joystick.active) return;
     joystick.curX = cx; joystick.curY = cy;
     let dx = cx - joystick.startX, dy = cy - joystick.startY, dist = Math.sqrt(dx*dx + dy*dy);
-    if (dist > 50) { dx = (dx / dist) * 50; dy = (dy / dist) * 50; joystick.curX = joystick.startX + dx; joystick.curY = joystick.startY + dy; }
-    joystick.moveX = dx / 50; joystick.moveY = dy / 50;
+    if (dist > 45) { dx = (dx / dist) * 45; dy = (dy / dist) * 45; joystick.curX = joystick.startX + dx; joystick.curY = joystick.startY + dy; }
+    joystick.moveX = dx / 45; joystick.moveY = dy / 45;
 }
-
-canvas.addEventListener("mousedown", (e) => handleTouchStart(e.clientX, e.clientY));
-canvas.addEventListener("mousemove", (e) => handleTouchMove(e.clientX, e.clientY));
-window.addEventListener("mouseup", () => { joystick.active = false; joystick.moveX = joystick.moveY = 0; });
 
 canvas.addEventListener("touchstart", (e) => { let t = e.changedTouches[0]; handleTouchStart(t.clientX, t.clientY); });
 canvas.addEventListener("touchmove", (e) => { let t = e.changedTouches[0]; handleTouchMove(t.clientX, t.clientY); });
-window.addEventListener("touchend", () => { joystick.active = false; joystick.moveX = joystick.moveY = 0; });
+window.addEventListener("touchend", () => { joystick.active = false; });
 
-function getRandomColor() { return ['#3e4656', '#a8744f', '#00ffcc', '#ebc45b'][Math.floor(Math.random()*4)]; }
 function sendChatMessage() {
     const i = document.getElementById('chatInput'), t = i.value.trim(); if (!t) return; i.value = "";
     addChatMessage(playerData.username, t);
 }
 function addChatMessage(s, t) {
-    const b = document.getElementById('chatMessages'), e = document.createElement('div'); e.className = "chat-line";
-    e.innerHTML = s === "SYSTEM" ? `<span class="chat-system">[SYS]:</span> ${t}` : `<span>${s}:</span> ${t}`;
-    b.appendChild(e); b.scrollTop = b.scrollHeight;
+    const b = document.getElementById('chatMessages'), e = document.createElement('div');
+    e.innerHTML = `<strong>${s}:</strong> ${t}`; b.appendChild(e); b.scrollTop = b.scrollHeight;
 }
 
-function executeConsoleCommand() {
-    const i = document.getElementById('consoleInput'), f = i.value.trim(); if (!f || !isUserAdmin) return; i.value = "";
-    logToConsole(playerData.username, f, false);
-    const args = f.split(" "), cmd = args[0].toLowerCase();
-
-    if (cmd === "!admin" && args[1]) {
-        let target = args[1].toLowerCase(); 
-        if (!adminList.includes(target)) { 
-            adminList.push(target); 
-            localStorage.setItem('chromashift_admins', JSON.stringify(adminList)); 
-            logToConsole("SYSTEM", `Promoted target parameters: ${target}`, true); 
-            checkAdminStatus();
-        }
-    } else if (cmd === "!announce") { addChatMessage("SYSTEM", `🌐 ADMIN: ${args.slice(1).join(" ")}`); }
-    else if (cmd === "!speed" && !isNaN(parseFloat(args[1]))) { character.speed = parseFloat(args[1]); }
-    else if (cmd === "!tp") { character.x = parseFloat(args[1]) || 2500; character.y = parseFloat(args[2]) || 2500; }
-    else if (cmd === "!clearconsole") { document.getElementById('consoleLog').innerHTML = ""; }
-}
-
-function logToConsole(s, t, sys) {
-    const b = document.getElementById('consoleLog'); if (!b) return; const l = document.createElement('div'); l.className = "console-line";
-    let ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    l.innerHTML = sys ? `[${ts}] <span class="console-tag-system">[${s}]</span> ${t}` : `[${ts}] <span class="console-tag-admin">[ADMIN]:</span> ${t}`;
-    b.appendChild(l); b.scrollTop = b.scrollHeight;
-}
-
-updateMenuUI();
+resizeCanvas();
 requestAnimationFrame(gameLoop);
-             
