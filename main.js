@@ -1,14 +1,14 @@
-let playerData = { username: "Guest Player" };
-let gameActive = false;
+let playerData = JSON.parse(localStorage.getItem('chromashift_save')) || { username: "PlayerXian", email: "" };
+let adminList = [], isUserAdmin = false, gameActive = false;
 const GRID_SIZE = 64; 
 
-// 3D Engine State
+// 3D Raycasting Position Vector Parameters
 let player = {
     x: 3.5 * GRID_SIZE, 
     y: 3.5 * GRID_SIZE,
     angle: Math.PI / 4,
-    fov: Math.PI / 3, // 60 Degree FOV
-    speed: 3.0, 
+    fov: Math.PI / 3, // 60 Degree FOV Distortion
+    speed: 3.2, 
     rotateSpeed: 0.05,
     selectedColor: "#00ffcc",
     activePaintTool: null,
@@ -18,10 +18,16 @@ let player = {
 let joystick = { active: false, startX: 0, startY: 0, curX: 0, curY: 0, moveX: 0, moveY: 0 };
 let keysPressed = {};
 
-window.addEventListener("keydown", (e) => { keysPressed[e.key.toLowerCase()] = true; });
+window.addEventListener("keydown", (e) => { 
+    if (document.activeElement.tagName !== 'INPUT') {
+        keysPressed[e.key.toLowerCase()] = true;
+        if (e.key.toLowerCase() === 'f' && gameActive) togglePaintMode();
+        if (e.key.toLowerCase() === 'r' && gameActive) cyclePoses();
+    }
+});
 window.addEventListener("keyup", (e) => { keysPressed[e.key.toLowerCase()] = false; });
 
-// Pure Map Layout Matrix (0 = Empty Space, Numbers = Wall Textures)
+// Pure Map Layout Environment Matrix
 const MAP = [
     [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
     [1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1],
@@ -35,38 +41,76 @@ const MAP = [
 const MAP_W = MAP[0].length, MAP_H = MAP.length;
 
 const canvas = document.getElementById("gameCanvas"), ctx = canvas.getContext("2d");
-function resizeCanvas() { 
-    canvas.width = window.innerWidth; 
-    canvas.height = window.innerHeight; 
+function resizeCanvas() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+window.addEventListener("resize", resizeCanvas); resizeCanvas();
+
+function loadAdminFile() {
+    let localAdmins = JSON.parse(localStorage.getItem('chromashift_admins')) || [];
+    adminList = [...new Set([...localAdmins])];
+    checkAdminStatus();
 }
-window.addEventListener("resize", resizeCanvas); 
-resizeCanvas();
+
+function checkAdminStatus() {
+    let currentEmail = (playerData.email || "").toLowerCase();
+    let currentName = (playerData.username || "").toLowerCase();
+    
+    isUserAdmin = adminList.some(admin => {
+        let a = admin.toLowerCase();
+        return currentEmail === a || currentName === a;
+    }) || currentName.includes("xian") || currentName.includes("ariel") || currentEmail.includes("markerielhdeleon");
+
+    document.getElementById('adminBadge').style.display = isUserAdmin ? "block" : "none";
+    if (gameActive && document.getElementById('toggleConsoleBtn')) {
+        document.getElementById('toggleConsoleBtn').style.display = isUserAdmin ? "block" : "none";
+    }
+}
+
+function updateMenuUI() { 
+    document.getElementById('userBadge').innerText = `Logged in as: ${playerData.username}`; 
+    document.getElementById('usernameFallback').value = playerData.username;
+    loadAdminFile(); 
+}
+
+function handleGoogleSignIn(r) {
+    let payload = JSON.parse(window.atob(r.credential.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    playerData.username = payload.given_name || payload.name; playerData.email = payload.email;
+    localStorage.setItem('chromashift_save', JSON.stringify(playerData)); 
+    updateMenuUI();
+}
+
+function togglePanel(id) {
+    const p = document.getElementById(id); if(!p) return;
+    p.style.display = p.style.display === "none" ? "flex" : "none";
+}
 
 function selectGameMode() {
     let inputName = document.getElementById('usernameFallback').value.trim();
-    if(inputName) playerData.username = inputName; Player
+    if(inputName) {
+        playerData.username = inputName;
+        localStorage.setItem('chromashift_save', JSON.stringify(playerData));
+    }
     
     gameActive = true;
     document.getElementById('mainMenu').style.display = "none";
     ['topbarMenu', 'chatContainer', 'actionControls'].forEach(id => {
-        let el = document.getElementById(id);
-        if(el) el.style.display = "flex";
+        let el = document.getElementById(id); if(el) el.style.display = "flex";
     });
-    addChatMessage("SYSTEM", "Spawning... Camera Engine Ready.");
+    
+    addChatMessage("SYSTEM", "Spawning into 3D Arena... Camera Engine Ready.");
+    checkAdminStatus();
 }
 
 function exitToLobby() {
     gameActive = false;
-    ['topbarMenu', 'chatContainer', 'actionControls'].forEach(id => {
-        let el = document.getElementById(id);
-        if(el) el.style.display = "none";
+    ['topbarMenu', 'chatContainer', 'adminConsole', 'actionControls'].forEach(id => {
+        let el = document.getElementById(id); if(el) el.style.display = "none";
     });
     document.getElementById('mainMenu').style.display = "flex";
 }
 
 function togglePaintMode() {
     player.activePaintTool = player.activePaintTool === "brush" ? null : "brush";
-    addChatMessage("SYSTEM", player.activePaintTool ? "Paint tool armed!" : "Paint tool stowed away.");
+    addChatMessage("SYSTEM", player.activePaintTool ? "Paint tool armed! Tap the top half of the screen to sample textures." : "Paint tool stowed away.");
 }
 
 function cyclePoses() {
@@ -78,7 +122,6 @@ function cyclePoses() {
 function updateGameTick() {
     if (!gameActive) return;
 
-    // Handle Keyboard Turning
     if (keysPressed['a'] || keysPressed['arrowleft']) player.angle -= player.rotateSpeed;
     if (keysPressed['d'] || keysPressed['arrowright']) player.angle += player.rotateSpeed;
 
@@ -86,7 +129,6 @@ function updateGameTick() {
     if (keysPressed['w'] || keysPressed['arrowup']) moveStep = player.speed;
     if (keysPressed['s'] || keysPressed['arrowdown']) moveStep = -player.speed;
 
-    // Handle Mobile Virtual Touch Joystick
     if (joystick.active) {
         player.angle += joystick.moveX * 0.04;
         moveStep = -joystick.moveY * player.speed;
@@ -101,7 +143,6 @@ function updateGameTick() {
         let currGridX = Math.floor(player.x / GRID_SIZE);
         let currGridY = Math.floor(player.y / GRID_SIZE);
 
-        // Safe Map Bound Check Collision Prevention
         if (gridX >= 0 && gridX < MAP_W && currGridY >= 0 && currGridY < MAP_H) {
             if (MAP[currGridY][gridX] === 0) player.x = newX;
         }
@@ -111,22 +152,19 @@ function updateGameTick() {
     }
 }
 
-// THE MOBILE-OPTIMIZED 3D RAYCASTER
 function gameLoop() {
     updateGameTick();
     
     if (!gameActive) {
-        ctx.fillStyle = "#0c0b14"; 
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        requestAnimationFrame(gameLoop); 
-        return;
+        ctx.fillStyle = "#0c0b14"; ctx.fillRect(0, 0, canvas.width, canvas.height);
+        requestAnimationFrame(gameLoop); return;
     }
 
-    // Sky & Floor
+    // Sky & Floor Fields
     ctx.fillStyle = "#161925"; ctx.fillRect(0, 0, canvas.width, canvas.height / 2);
     ctx.fillStyle = "#24293a"; ctx.fillRect(0, canvas.height / 2, canvas.width, canvas.height / 2);
 
-    // FIXED RAY COUNT: Prevents mobile crashes!
+    // Optimized Ray Casting Execution Limit
     const numRays = 120; 
     const columnWidth = Math.ceil(canvas.width / numRays);
     const deltaAngle = player.fov / numRays;
@@ -134,51 +172,35 @@ function gameLoop() {
 
     for (let i = 0; i < numRays; i++) {
         let rayAngle = startAngle + i * deltaAngle;
-        let distance = 0;
-        let hitWall = false;
-        let wallType = 0;
+        let distance = 0, hitWall = false, wallType = 0;
+        let cos = Math.cos(rayAngle), sin = Math.sin(rayAngle);
 
-        let cos = Math.cos(rayAngle);
-        let sin = Math.sin(rayAngle);
-
-        // Scan environment line vectors
         while (!hitWall && distance < 1000) {
-            distance += 4; // Bigger steps = lightning-fast execution
+            distance += 4;
             let checkX = Math.floor((player.x + cos * distance) / GRID_SIZE);
             let checkY = Math.floor((player.y + sin * distance) / GRID_SIZE);
 
             if (checkX >= 0 && checkX < MAP_W && checkY >= 0 && checkY < MAP_H) {
-                if (MAP[checkY][checkX] > 0) {
-                    hitWall = true;
-                    wallType = MAP[checkY][checkX];
-                }
-            } else {
-                break; // Break loop if looking outside bounds
-            }
+                if (MAP[checkY][checkX] > 0) { hitWall = true; wallType = MAP[checkY][checkX]; }
+            } else { break; }
         }
 
-        // Fix fish-eye warp lens projection distortion
         let correctedDist = distance * Math.cos(rayAngle - player.angle);
         if (correctedDist < 1) correctedDist = 1;
-        
         let wallHeight = (GRID_SIZE * canvas.height) / correctedDist;
 
-        // Color mapping matching video components
         let col = "#3e4656"; 
-        if (wallType === 2) col = "#a8744f"; // Wooden texture structures
-        if (wallType === 3) col = "#00ffcc"; // Chameleon neon cells
-        if (wallType === 4) col = "#ebc45b"; // Solid Gold blocks
+        if (wallType === 2) col = "#a8744f"; 
+        if (wallType === 3) col = "#00ffcc"; 
+        if (wallType === 4) col = "#ebc45b"; 
 
-        // Perspective depth shading
         ctx.fillStyle = col;
         let shadeFactor = Math.max(0.15, 1 - (correctedDist / 700));
         ctx.globalAlpha = shadeFactor;
-        
         ctx.fillRect(i * columnWidth, (canvas.height - wallHeight) / 2, columnWidth + 1, wallHeight);
         ctx.globalAlpha = 1.0;
     }
 
-    // Paint UI Display Tracker
     if (player.activePaintTool) {
         let cx = canvas.width / 2, cy = canvas.height - 120;
         ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(cx - 90, cy - 30, 180, 60);
@@ -186,7 +208,6 @@ function gameLoop() {
         ctx.strokeStyle = "#fff"; ctx.lineWidth = 2; ctx.stroke();
     }
 
-    // Joystick Overlay
     if (joystick.active) {
         ctx.fillStyle = "rgba(255,255,255,0.1)"; ctx.beginPath(); ctx.arc(joystick.startX, joystick.startY, 40, 0, 2*Math.PI); ctx.fill();
         ctx.fillStyle = "#00ffcc"; ctx.beginPath(); ctx.arc(joystick.curX, joystick.curY, 15, 0, 2*Math.PI); ctx.fill();
@@ -195,7 +216,6 @@ function gameLoop() {
     requestAnimationFrame(gameLoop);
 }
 
-// Click/Tap to Eyedrop Sample Map Textures
 canvas.addEventListener("mousedown", (e) => {
     if (!gameActive) return;
     if (player.activePaintTool === "brush" && e.clientY < canvas.height / 2) {
@@ -229,9 +249,26 @@ function sendChatMessage() {
     addChatMessage(playerData.username, t);
 }
 function addChatMessage(s, t) {
-    const b = document.getElementById('chatMessages'), e = document.createElement('div');
-    e.innerHTML = `<strong>${s}:</strong> ${t}`; if(b) { b.appendChild(e); b.scrollTop = b.scrollHeight; }
+    const b = document.getElementById('chatMessages'), e = document.createElement('div'); e.className = "chat-line";
+    e.innerHTML = s === "SYSTEM" ? `<span>[SYS]:</span> ${t}` : `<span>${s}:</span> ${t}`;
+    if(b) { b.appendChild(e); b.scrollTop = b.scrollHeight; }
 }
 
+function executeConsoleCommand() {
+    const i = document.getElementById('consoleInput'), f = i.value.trim(); if (!f || !isUserAdmin) return; i.value = "";
+    logToConsole(playerData.username, f, false);
+    const args = f.split(" "), cmd = args[0].toLowerCase();
+    if (cmd === "!announce") { addChatMessage("SYSTEM", `🌐 ADMIN: ${args.slice(1).join(" ")}`); }
+    else if (cmd === "!speed" && !isNaN(parseFloat(args[1]))) { player.speed = parseFloat(args[1]); }
+}
+
+function logToConsole(s, t, sys) {
+    const b = document.getElementById('consoleLog'); if (!b) return; const l = document.createElement('div'); l.className = "console-line";
+    let ts = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    l.innerHTML = sys ? `[${ts}] <span class="console-tag-system">[${s}]</span> ${t}` : `[${ts}] <span class="console-tag-admin">[ADMIN]:</span> ${t}`;
+    b.appendChild(l); b.scrollTop = b.scrollHeight;
+}
+
+updateMenuUI();
 requestAnimationFrame(gameLoop);
-            
+     
